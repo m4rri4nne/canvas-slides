@@ -1,0 +1,9 @@
+{
+  "id": "canvas-slides",
+  "name": "Canvas Slides",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Presents a canvas as slides, following the arrows. Slide-by-slide or zoom-through-canvas mode.",
+  "author": "Alicia Marianne",
+  "isDesktopOnly": false
+}
