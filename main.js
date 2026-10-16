@@ -111,7 +111,9 @@ class Presentation extends Component {
     this.load();
     this.root = document.body.createDiv({ cls: "cs-overlay" });
     this.registerDomEvent(window, "keydown", (e) => this.onKey(e), true);
-    this.registerDomEvent(window, "resize", () => this.show(false));
+    this.registerDomEvent(window, "resize", () => !this.paused && this.show(false));
+    this.registerDomEvent(this.root, "mousemove", () => this.flashHud());
+    this.registerDomEvent(this.root, "click", (e) => this.onLinkClick(e), true);
     this.register(() => this.root.remove());
 
     this.hud = this.root.createDiv({ cls: "cs-hud" });
@@ -217,7 +219,9 @@ class Presentation extends Component {
         } else if (f.extension === "md") {
           let text = await this.app.vault.cachedRead(f);
           if (n.subpath) text = this.extractSubpath(text, n.subpath);
-          el.createEl("h1", { text: f.basename, cls: "cs-file-title" });
+          el.dataset.csSource = f.path;
+          const title = el.createEl("h1", { cls: "cs-file-title" });
+          title.createEl("a", { text: f.basename, cls: "internal-link", attr: { "data-href": f.path + (n.subpath || "") } });
           await MarkdownRenderer.render(this.app, text, el, f.path, this);
         } else if (/^(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(f.extension)) {
           el.addClass("cs-media");
@@ -252,6 +256,7 @@ class Presentation extends Component {
   }
 
   onKey(e) {
+    if (this.paused) return;
     const k = e.key;
     const handled = () => { e.preventDefault(); e.stopPropagation(); };
     if (k === "ArrowRight" || k === "ArrowDown" || k === "PageDown" || k === " " || k === "Enter") { handled(); this.go(1); }
@@ -282,7 +287,44 @@ class Presentation extends Component {
     this.show(false);
   }
 
+  /** Clicking an internal link pauses the presentation and opens the note in a new tab. */
+  onLinkClick(e) {
+    const a = e.target.closest("a.internal-link");
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const href = a.getAttribute("data-href") || a.getAttribute("href");
+    if (!href) return;
+    const holder = a.closest("[data-cs-source]");
+    const source = holder ? holder.dataset.csSource : this.file.path;
+    this.pause();
+    this.app.workspace.openLinkText(href, source, "tab");
+  }
+
+  /** Hides the presentation and shows a floating button to come back to the same slide. */
+  pause() {
+    if (this.paused) return;
+    this.paused = true;
+    this.root.hidden = true;
+    this.resumeBar = document.body.createDiv({ cls: "cs-resume" });
+    const back = this.resumeBar.createEl("button", { cls: "cs-resume-back", text: `▶ Back to presentation (${this.index + 1} / ${this.order.length})` });
+    back.onclick = () => this.resume();
+    const close = this.resumeBar.createEl("button", { cls: "cs-resume-close", text: "✕", attr: { "aria-label": "End presentation" } });
+    close.onclick = () => this.unload();
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    this.resumeBar.remove();
+    this.resumeBar = null;
+    this.root.hidden = false;
+    this.show(false);
+  }
+
   go(delta) {
+    // Moving forward past the last element ends the presentation.
+    if (delta > 0 && this.index === this.order.length - 1) { this.unload(); return; }
     const next = Math.max(0, Math.min(this.order.length - 1, this.index + delta));
     if (next === this.index) return;
     this.index = next;
@@ -294,6 +336,7 @@ class Presentation extends Component {
     const box = step.box;
     this.hud.setText(`${this.index + 1} / ${this.order.length}   ·   Order: ${ORDER_LABELS[this.orderMode]} (O)   ·   Mode (M)   ·   Esc: exit`);
     this.progress.style.width = ((this.index + 1) / this.order.length) * 100 + "%";
+    this.flashHud();
 
     if (this.mode === "zoom") {
       const active = new Set(step.nodes.map((n) => n.id));
@@ -302,14 +345,27 @@ class Presentation extends Component {
       const scale = Math.min((vw * 0.88) / box.width, (vh * 0.86) / box.height);
       const tx = vw / 2 - (box.x + box.width / 2) * scale;
       const ty = vh / 2 - (box.y + box.height / 2) * scale;
-      this.world.style.transition = animate ? "transform 0.8s cubic-bezier(.45,.05,.25,1)" : "none";
-      this.world.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      // will-change only while moving, so the browser re-renders the text sharply at the final scale.
+      const world = this.world;
+      world.toggleClass("cs-moving", animate);
+      world.style.transition = animate ? "transform 0.8s cubic-bezier(.45,.05,.25,1)" : "none";
+      world.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      if (animate) world.addEventListener("transitionend", () => world.removeClass("cs-moving"), { once: true });
     } else {
       this.els.forEach((el, id) => el.toggleClass("cs-active", id === step.id));
     }
   }
 
+  /** Shows the HUD briefly, then fades it out so it doesn't cover the slide. */
+  flashHud() {
+    this.hud.removeClass("cs-hidden");
+    window.clearTimeout(this.hudTimer);
+    this.hudTimer = window.setTimeout(() => this.hud.addClass("cs-hidden"), 2500);
+  }
+
   onunload() {
+    window.clearTimeout(this.hudTimer);
+    this.resumeBar && this.resumeBar.remove();
     this.plugin && (this.plugin.current = null);
   }
 }
@@ -382,6 +438,8 @@ module.exports = class CanvasSlidesPlugin extends Plugin {
   }
 
   async present(file, mode) {
+    // Presenting the same canvas while paused picks up where it left off.
+    if (this.current && this.current.paused && this.current.file.path === file.path) return this.current.resume();
     if (this.current) this.current.unload();
     let data;
     try {

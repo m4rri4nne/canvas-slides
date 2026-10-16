@@ -55,12 +55,14 @@ Open a canvas, then start presenting in whichever way you like best:
 
 | Key | Action |
 |---|---|
-| `→` `↓` `PageDown` `Space` `Enter` | Next slide ➡️ |
+| `→` `↓` `PageDown` `Space` `Enter` | Next slide ➡️ (on the last slide, ends the presentation) |
 | `←` `↑` `PageUp` `Backspace` | Previous slide ⬅️ |
 | `Home` / `End` | First / last slide ⏮️⏭️ |
 | `M` | Switch between slide and zoom mode 🔄 |
 | `O` | Cycle the slide order (arrows → groups → position) 🔀 |
 | `Esc` | Exit the presentation 👋 |
+
+🔗 Clicking an internal link (`[[note]]`) or a note card's title pauses the presentation and opens that note in a new tab. Click **▶ Back to presentation** (or present the same canvas again) to pick up on the same slide, or **✕** to end it.
 
 ---
 
